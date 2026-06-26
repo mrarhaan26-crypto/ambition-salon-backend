@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { BookingStatus } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
+import { GetBookingSlotsDto } from './dto/get-booking-slots.dto';
 
 @Injectable()
 export class BookingsService {
@@ -175,7 +176,148 @@ export class BookingsService {
     return this.prisma.booking.delete({ where: { id } });
   }
 
+
+  async getAvailableSlots(query: GetBookingSlotsDto) {
+    const { branchId, staffId, date, serviceIds } = query;
+
+    const slotSizeMinutes = query.slotSizeMinutes
+      ? Number(query.slotSizeMinutes)
+      : 15;
+
+    if (!Number.isFinite(slotSizeMinutes) || slotSizeMinutes <= 0) {
+      throw new BadRequestException('slotSizeMinutes must be a positive number');
+    }
+
+    const rawDateValue = Array.isArray(date) ? date[0] : date;
+    const normalizedDate = String(rawDateValue ?? '2026-06-27').trim().slice(0, 10);
+
+    const [year, month, day] = normalizedDate.split('-').map((value) => Number(value));
+    const parsedDate = new Date(Date.UTC(year, month - 1, day));
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      throw new BadRequestException('Invalid date');
+    }
+
+    const serviceIdList = serviceIds
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+
+    if (!serviceIdList.length) {
+      throw new BadRequestException('At least one serviceId is required');
+    }
+
+    const staff = await this.prisma.user.findUnique({
+      where: { id: staffId },
+    });
+
+    if (!staff) {
+      throw new NotFoundException('Staff not found');
+    }
+
+    const services = await this.prisma.bookingService.findMany({
+      where: {
+        id: {
+          in: serviceIdList,
+        },
+      },
+    });
+
+    if (services.length !== serviceIdList.length) {
+      throw new NotFoundException('One or more services were not found');
+    }
+
+    const durationMinutes = services.reduce((total, service) => {
+      return total + Number(service.durationMin || 0);
+    }, 0);
+
+    if (!durationMinutes || durationMinutes <= 0) {
+      throw new BadRequestException('Selected services have invalid duration');
+    }
+
+    const dayStart = new Date(parsedDate);
+    dayStart.setHours(0, 0, 0, 0);
+
+    const dayEnd = new Date(parsedDate);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const businessOpen = new Date(parsedDate);
+    businessOpen.setHours(10, 0, 0, 0);
+
+    const businessClose = new Date(parsedDate);
+    businessClose.setHours(20, 0, 0, 0);
+
+    const existingBookings = await this.prisma.booking.findMany({
+      where: {
+        branchId,
+        staffId,
+        startTime: {
+          gte: dayStart,
+          lte: dayEnd,
+        },
+        status: {
+          notIn: ['CANCELLED', 'NO_SHOW'],
+        },
+      },
+      orderBy: {
+        startTime: 'asc',
+      },
+    });
+
+    const slots: Array<{
+      startTime: Date;
+      endTime: Date;
+      available: boolean;
+    }> = [];
+
+    let cursor = new Date(businessOpen);
+
+    while (
+      cursor.getTime() + durationMinutes * 60_000 <=
+      businessClose.getTime()
+    ) {
+      const slotStart = new Date(cursor);
+      const slotEnd = new Date(cursor.getTime() + durationMinutes * 60_000);
+
+      const hasConflict = existingBookings.some((booking) => {
+        const bookingStart = new Date(booking.startTime);
+        const bookingEnd = new Date(booking.endTime);
+
+        return slotStart < bookingEnd && slotEnd > bookingStart;
+      });
+
+      slots.push({
+        startTime: slotStart,
+        endTime: slotEnd,
+        available: !hasConflict,
+      });
+
+      cursor = new Date(cursor.getTime() + slotSizeMinutes * 60_000);
+    }
+
+    return {
+      date,
+      branchId,
+      staffId,
+      durationMinutes,
+      slotSizeMinutes,
+      businessOpen,
+      businessClose,
+      totalSlots: slots.length,
+      availableSlots: slots.filter((slot) => slot.available).length,
+      unavailableSlots: slots.filter((slot) => !slot.available).length,
+      slots,
+    };
+  }
   async calendar(query: any) {
     return this.findAll(query);
   }
 }
+
+
+
+
+
+
+
+

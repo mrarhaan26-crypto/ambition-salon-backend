@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+﻿import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { BookingStatus } from '@prisma/client';
 import { BookingsService } from './bookings.service';
 
 @Controller('bookings')
@@ -15,6 +16,11 @@ export class BookingsController {
     return this.service.calendar(query);
   }
 
+  @Get('slots')
+  getAvailableSlots(@Query() query: any) {
+    return this.service.getAvailableSlots(query);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
@@ -29,10 +35,12 @@ export class BookingsController {
   update(@Param('id') id: string, @Body() body: any) {
     return this.service.update(id, body);
   }
-@Patch(':id/status')
-updateStatus(@Param('id') id: string, @Body() body: any) {
-  return this.service.updateStatus(id, body.status);
-}                                                                   
+
+  @Patch(':id/status')
+  updateStatus(@Param('id') id: string, @Body('status') status: BookingStatus) {
+    return this.service.updateStatus(id, status);
+  }
+
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.service.remove(id);
