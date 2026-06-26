@@ -591,6 +591,88 @@ export class BookingsService {
   async calendar(query: any) {
     return this.findAll(query);
   }
+  async calendarSummary(query: any) {
+    const baseDate = query.date ? new Date(query.date) : new Date();
+
+    if (Number.isNaN(baseDate.getTime())) {
+      throw new BadRequestException('Invalid calendar summary date');
+    }
+
+    const start = new Date(baseDate);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(start);
+    end.setDate(start.getDate() + 1);
+
+    const where: any = {
+      startTime: {
+        gte: start,
+        lt: end,
+      },
+      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...(query.staffId ? { staffId: query.staffId } : {}),
+      ...(query.status ? { status: query.status } : {}),
+    };
+
+    const [totalBookings, confirmed, pending, cancelled, completed, revenueAggregate, bookings] =
+      await this.prisma.$transaction([
+        this.prisma.booking.count({ where }),
+        this.prisma.booking.count({ where: { ...where, status: 'CONFIRMED' } }),
+        this.prisma.booking.count({ where: { ...where, status: 'PENDING' } }),
+        this.prisma.booking.count({ where: { ...where, status: 'CANCELLED' } }),
+        this.prisma.booking.count({ where: { ...where, status: 'COMPLETED' } }),
+        this.prisma.booking.aggregate({
+          where: { ...where, status: { not: 'CANCELLED' } },
+          _sum: { totalAmount: true },
+          _avg: { totalAmount: true },
+        }),
+        this.prisma.booking.findMany({
+          where,
+          select: {
+            id: true,
+            status: true,
+            startTime: true,
+            endTime: true,
+            totalAmount: true,
+            branchId: true,
+            staffId: true,
+          },
+          orderBy: { startTime: 'asc' },
+        }),
+      ]);
+
+    const totalDurationMinutes = bookings.reduce((sum, booking) => {
+      const startMs = new Date(booking.startTime).getTime();
+      const endMs = new Date(booking.endTime).getTime();
+      const duration = Math.max(0, Math.round((endMs - startMs) / 60000));
+      return sum + duration;
+    }, 0);
+
+    return {
+      date: start.toISOString().slice(0, 10),
+      range: {
+        start: start.toISOString(),
+        end: end.toISOString(),
+      },
+      filters: {
+        branchId: query.branchId ?? null,
+        staffId: query.staffId ?? null,
+        status: query.status ?? null,
+      },
+      kpis: {
+        totalBookings,
+        confirmed,
+        pending,
+        cancelled,
+        completed,
+        revenue: revenueAggregate._sum.totalAmount ?? 0,
+        averageBookingValue: Math.round(revenueAggregate._avg.totalAmount ?? 0),
+        totalDurationMinutes,
+      },
+      bookings,
+    };
+  }
+
 
   async calendarDay(query: any) {
     return this.calendarRange(query, 'day');
@@ -676,6 +758,7 @@ export class BookingsService {
     return result;
   }
 }
+
 
 
 
