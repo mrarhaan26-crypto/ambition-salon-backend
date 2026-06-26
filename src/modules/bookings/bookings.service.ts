@@ -591,6 +591,72 @@ export class BookingsService {
   async calendar(query: any) {
     return this.findAll(query);
   }
+  async calendarResources(query: any) {
+    const baseDate = query.date ? new Date(query.date) : new Date();
+
+    if (Number.isNaN(baseDate.getTime())) {
+      throw new BadRequestException('Invalid resource calendar date');
+    }
+
+    const start = new Date(baseDate);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(start);
+    end.setDate(start.getDate() + 1);
+
+    const resources = await this.prisma.resource.findMany({
+      where: {
+        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(query.type ? { type: query.type } : {}),
+        ...(query.isActive === 'false' ? { isActive: false } : { isActive: true }),
+      },
+      select: {
+        id: true,
+        branchId: true,
+        name: true,
+        type: true,
+        description: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+        branch: {
+          select: {
+            id: true,
+            name: true,
+            city: true,
+            salonId: true,
+          },
+        },
+      },
+      orderBy: [
+        { branchId: 'asc' },
+        { type: 'asc' },
+        { name: 'asc' },
+      ],
+    });
+
+    return {
+      date: start.toISOString().slice(0, 10),
+      range: {
+        start: start.toISOString(),
+        end: end.toISOString(),
+      },
+      filters: {
+        branchId: query.branchId ?? null,
+        type: query.type ?? null,
+        isActive: query.isActive ?? 'true',
+      },
+      totalResources: resources.length,
+      resources: resources.map((resource) => ({
+        ...resource,
+        status: 'AVAILABLE',
+        bookedMinutes: 0,
+        utilizationPercent: 0,
+        bookings: [],
+      })),
+    };
+  }
+
   async calendarBranchSummary(query: any) {
     const baseDate = query.date ? new Date(query.date) : new Date();
 
@@ -1058,6 +1124,7 @@ export class BookingsService {
     return result;
   }
 }
+
 
 
 
