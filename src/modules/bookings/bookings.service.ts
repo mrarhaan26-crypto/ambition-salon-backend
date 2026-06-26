@@ -362,6 +362,43 @@ export class BookingsService {
     });
   }
 
+  async cancel(id: string, body: any) {
+    return this.prisma.$transaction(async (tx) => {
+      const booking = await tx.booking.findUnique({
+        where: { id },
+      });
+
+      if (!booking) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      if (booking.status === 'CANCELLED') {
+        throw new BadRequestException('Booking is already cancelled');
+      }
+
+      if (booking.status === 'COMPLETED') {
+        throw new BadRequestException('Completed booking cannot be cancelled');
+      }
+
+      if (booking.status === 'NO_SHOW') {
+        throw new BadRequestException('No-show booking cannot be cancelled');
+      }
+
+      const reason = String(body?.reason || '').trim();
+
+      return tx.booking.update({
+        where: { id },
+        data: {
+          status: 'CANCELLED',
+          notes: reason
+            ? `${booking.notes || ''}${booking.notes ? ' | ' : ''}Cancellation reason: ${reason}`
+            : booking.notes,
+        },
+        include: { client: true, branch: true, staff: true, services: true },
+      });
+    });
+  }
+
   async updateStatus(id: string, status: BookingStatus) {
     if (!status) {
       throw new BadRequestException('Status is required');
@@ -560,3 +597,4 @@ export class BookingsService {
     return result;
   }
 }
+
