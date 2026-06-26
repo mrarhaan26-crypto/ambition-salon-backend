@@ -40,6 +40,7 @@ model Branch {
   bookings          Booking[]
   salon             Salon               @relation(fields: [salonId], references: [id])
   staffAvailability StaffAvailability[]
+  Resource          Resource[]
 }
 
 model Lead {
@@ -130,6 +131,29 @@ model StaffAvailability {
   @@unique([branchId, staffId, dayOfWeek, startTime, endTime])
   @@index([branchId])
   @@index([staffId])
+}
+
+model Resource {
+  id          String       @id @default(cuid())
+  branchId    String
+  name        String
+  type        ResourceType
+  description String?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  branch      Branch       @relation(fields: [branchId], references: [id])
+
+  @@index([branchId])
+  @@index([type])
+  @@index([isActive])
+}
+
+enum ResourceType {
+  CHAIR
+  ROOM
+  EQUIPMENT
+  STATION
 }
 
 enum Role {
