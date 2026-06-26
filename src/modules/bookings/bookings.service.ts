@@ -591,6 +591,115 @@ export class BookingsService {
   async calendar(query: any) {
     return this.findAll(query);
   }
+  async createResource(body: any) {
+    if (!body.branchId) {
+      throw new BadRequestException('branchId is required');
+    }
+
+    if (!body.name) {
+      throw new BadRequestException('Resource name is required');
+    }
+
+    if (!body.type) {
+      throw new BadRequestException('Resource type is required');
+    }
+
+    return this.prisma.resource.create({
+      data: {
+        branchId: body.branchId,
+        name: body.name,
+        type: body.type,
+        description: body.description ?? null,
+        isActive: body.isActive ?? true,
+      },
+      include: {
+        branch: true,
+      },
+    });
+  }
+
+  async updateResource(id: string, body: any) {
+    const existing = await this.prisma.resource.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      throw new BadRequestException('Resource not found');
+    }
+
+    return this.prisma.resource.update({
+      where: { id },
+      data: {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.type !== undefined ? { type: body.type } : {}),
+        ...(body.description !== undefined ? { description: body.description } : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+      },
+      include: {
+        branch: true,
+      },
+    });
+  }
+
+  async removeResource(id: string) {
+    const existing = await this.prisma.resource.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      throw new BadRequestException('Resource not found');
+    }
+
+    return this.prisma.resource.delete({
+      where: { id },
+    });
+  }
+
+  async seedBranchResources(query: any) {
+    if (!query.branchId) {
+      throw new BadRequestException('branchId is required');
+    }
+
+    const defaults = [
+      { name: 'Styling Chair 1', type: 'CHAIR', description: 'Primary haircut and styling chair' },
+      { name: 'Styling Chair 2', type: 'CHAIR', description: 'Secondary haircut and styling chair' },
+      { name: 'Facial Room 1', type: 'ROOM', description: 'Private facial and therapy room' },
+      { name: 'Makeup Station 1', type: 'STATION', description: 'Makeup and bridal trial station' },
+      { name: 'Hair Spa Equipment 1', type: 'EQUIPMENT', description: 'Hair spa machine and setup' },
+    ];
+
+    const created = [];
+
+    for (const resource of defaults) {
+      const existing = await this.prisma.resource.findFirst({
+        where: {
+          branchId: query.branchId,
+          name: resource.name,
+        },
+      });
+
+      if (!existing) {
+        created.push(
+          await this.prisma.resource.create({
+            data: {
+              branchId: query.branchId,
+              name: resource.name,
+              type: resource.type as any,
+              description: resource.description,
+              isActive: true,
+            },
+          }),
+        );
+      }
+    }
+
+    return {
+      branchId: query.branchId,
+      createdCount: created.length,
+      created,
+    };
+  }
+
   async calendarResources(query: any) {
     const baseDate = query.date ? new Date(query.date) : new Date();
 
@@ -1124,6 +1233,7 @@ export class BookingsService {
     return result;
   }
 }
+
 
 
 

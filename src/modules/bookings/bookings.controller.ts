@@ -10,6 +10,26 @@ export class BookingsController {
   findAll(@Query() query: any) {
     return this.service.findAll(query);
   }
+  @Post('calendar/resources')
+  createResource(@Body() body: any) {
+    return this.service.createResource(body);
+  }
+
+  @Patch('calendar/resources/:id')
+  updateResource(@Param('id') id: string, @Body() body: any) {
+    return this.service.updateResource(id, body);
+  }
+
+  @Delete('calendar/resources/:id')
+  removeResource(@Param('id') id: string) {
+    return this.service.removeResource(id);
+  }
+
+  @Post('calendar/resources/seed')
+  seedBranchResources(@Query() query: any) {
+    return this.service.seedBranchResources(query);
+  }
+
   @Get('calendar/resources')
   calendarResources(@Query() query: any) {
     return this.service.calendarResources(query);
@@ -92,6 +112,7 @@ export class BookingsController {
     return this.service.remove(id);
   }
 }
+
 
 
 
