@@ -591,6 +591,155 @@ export class BookingsService {
   async calendar(query: any) {
     return this.findAll(query);
   }
+  async calendarBranchSummary(query: any) {
+    const baseDate = query.date ? new Date(query.date) : new Date();
+
+    if (Number.isNaN(baseDate.getTime())) {
+      throw new BadRequestException('Invalid branch summary date');
+    }
+
+    const start = new Date(baseDate);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(start);
+    end.setDate(start.getDate() + 1);
+
+    const capacityMinutes = query.capacityMinutes ? Number(query.capacityMinutes) : 720;
+
+    if (!Number.isFinite(capacityMinutes) || capacityMinutes <= 0) {
+      throw new BadRequestException('Invalid capacityMinutes');
+    }
+
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        startTime: {
+          gte: start,
+          lt: end,
+        },
+        ...(query.branchId ? { branchId: query.branchId } : {}),
+      },
+      select: {
+        id: true,
+        status: true,
+        startTime: true,
+        endTime: true,
+        totalAmount: true,
+        branchId: true,
+        staffId: true,
+        branch: {
+          select: {
+            id: true,
+            name: true,
+            city: true,
+            salonId: true,
+          },
+        },
+      },
+      orderBy: [
+        { branchId: 'asc' },
+        { startTime: 'asc' },
+      ],
+    });
+
+    const branchMap = new Map<string, any>();
+
+    for (const booking of bookings) {
+      const key = booking.branchId ?? 'unassigned';
+
+      if (!branchMap.has(key)) {
+        branchMap.set(key, {
+          branchId: booking.branchId,
+          branch: booking.branch ?? null,
+          totalBookings: 0,
+          confirmed: 0,
+          pending: 0,
+          completed: 0,
+          cancelled: 0,
+          revenue: 0,
+          bookedMinutes: 0,
+          utilizationPercent: 0,
+          bookings: [],
+        });
+      }
+
+      const row = branchMap.get(key);
+      row.totalBookings += 1;
+
+      if (booking.status === 'CONFIRMED') row.confirmed += 1;
+      if (booking.status === 'PENDING') row.pending += 1;
+      if (booking.status === 'COMPLETED') row.completed += 1;
+      if (booking.status === 'CANCELLED') row.cancelled += 1;
+
+      const duration = Math.max(
+        0,
+        Math.round((new Date(booking.endTime).getTime() - new Date(booking.startTime).getTime()) / 60000),
+      );
+
+      row.bookedMinutes += duration;
+
+      if (booking.status !== 'CANCELLED') {
+        row.revenue += booking.totalAmount ?? 0;
+      }
+
+      row.bookings.push({
+        id: booking.id,
+        status: booking.status,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        totalAmount: booking.totalAmount,
+        durationMinutes: duration,
+        staffId: booking.staffId,
+      });
+    }
+
+    const branchSummaries = Array.from(branchMap.values()).map((row) => ({
+      ...row,
+      utilizationPercent: Math.min(100, Math.round((row.bookedMinutes / capacityMinutes) * 100)),
+    }));
+
+    const totals = branchSummaries.reduce(
+      (sum, row) => {
+        sum.totalBookings += row.totalBookings;
+        sum.confirmed += row.confirmed;
+        sum.pending += row.pending;
+        sum.completed += row.completed;
+        sum.cancelled += row.cancelled;
+        sum.revenue += row.revenue;
+        sum.bookedMinutes += row.bookedMinutes;
+        return sum;
+      },
+      {
+        totalBookings: 0,
+        confirmed: 0,
+        pending: 0,
+        completed: 0,
+        cancelled: 0,
+        revenue: 0,
+        bookedMinutes: 0,
+      },
+    );
+
+    return {
+      date: start.toISOString().slice(0, 10),
+      range: {
+        start: start.toISOString(),
+        end: end.toISOString(),
+      },
+      filters: {
+        branchId: query.branchId ?? null,
+        capacityMinutes,
+      },
+      totals: {
+        ...totals,
+        utilizationPercent:
+          branchSummaries.length === 0
+            ? 0
+            : Math.round((totals.bookedMinutes / (branchSummaries.length * capacityMinutes)) * 100),
+      },
+      branches: branchSummaries,
+    };
+  }
+
   async calendarStaffSummary(query: any) {
     const baseDate = query.date ? new Date(query.date) : new Date();
 
@@ -909,6 +1058,7 @@ export class BookingsService {
     return result;
   }
 }
+
 
 
 

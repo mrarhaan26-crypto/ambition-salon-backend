@@ -10,6 +10,11 @@ export class BookingsController {
   findAll(@Query() query: any) {
     return this.service.findAll(query);
   }
+  @Get('calendar/branch-summary')
+  calendarBranchSummary(@Query() query: any) {
+    return this.service.calendarBranchSummary(query);
+  }
+
   @Get('calendar/staff-summary')
   calendarStaffSummary(@Query() query: any) {
     return this.service.calendarStaffSummary(query);
@@ -82,6 +87,7 @@ export class BookingsController {
     return this.service.remove(id);
   }
 }
+
 
 
 
