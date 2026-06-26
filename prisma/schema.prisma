@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  OWNER
+  MANAGER
+  RECEPTIONIST
+  STYLIST
+  THERAPIST
+  CASHIER
+  MARKETING_EXECUTIVE
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  DEMO_SCHEDULED
+  CONVERTED
+  LOST
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model User {
+  id           String   @id @default(cuid())
+  fullName     String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(OWNER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedSalons       Salon[]
+  staffBookings     Booking[]           @relation("StaffBookings")
+  staffAvailability StaffAvailability[]
+}
+
+model Salon {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id])
+  branches  Branch[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Branch {
+  id        String   @id @default(cuid())
+  salonId   String
+  salon     Salon    @relation(fields: [salonId], references: [id])
+  name      String
+  city      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings          Booking[]
+  staffAvailability StaffAvailability[]
+}
+
+model Lead {
+  id           String     @id @default(cuid())
+  fullName     String
+  businessName String?
+  email        String?
+  phone        String?
+  city         String?
+  message      String?
+  formType     String
+  sourcePage   String
+  status       LeadStatus @default(NEW)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Client {
+  id            String    @id @default(cuid())
+  fullName      String
+  phone         String?
+  email         String?
+  gender        String?
+  dateOfBirth   DateTime?
+  address       String?
+  city          String?
+  notes         String?
+  loyaltyPoints Int       @default(0)
+  walletBalance Float     @default(0)
+  totalVisits   Int       @default(0)
+  totalSpend    Float     @default(0)
+  lastVisitAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  bookings Booking[]
+}
+
+model Booking {
+  id          String        @id @default(cuid())
+  branchId    String
+  clientId    String
+  staffId     String?
+  title       String
+  notes       String?
+  status      BookingStatus @default(PENDING)
+  startTime   DateTime
+  endTime     DateTime
+  totalAmount Float         @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  branch   Branch           @relation(fields: [branchId], references: [id])
+  client   Client           @relation(fields: [clientId], references: [id])
+  staff    User?            @relation("StaffBookings", fields: [staffId], references: [id])
+  services BookingService[]
+
+  @@index([branchId])
+  @@index([clientId])
+  @@index([staffId])
+  @@index([startTime])
+  @@index([status])
+}
+
+model BookingService {
+  id          String   @id @default(cuid())
+  bookingId   String
+  name        String
+  durationMin Int
+  price       Float    @default(0)
+  createdAt   DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+model StaffAvailability {
+  id        String   @id @default(cuid())
+  branchId  String
+  staffId   String
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id])
+  staff  User   @relation(fields: [staffId], references: [id])
+
+  @@unique([branchId, staffId, dayOfWeek, startTime, endTime])
+  @@index([branchId])
+  @@index([staffId])
+}
