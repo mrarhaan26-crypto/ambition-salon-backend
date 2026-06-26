@@ -29,6 +29,11 @@ export class BookingsController {
   seedBranchResources(@Query() query: any) {
     return this.service.seedBranchResources(query);
   }
+  @Get('calendar/resources/availability')
+  calendarResourceAvailability(@Query() query: any) {
+    return this.service.calendarResourceAvailability(query);
+  }
+
 
   @Get('calendar/resources')
   calendarResources(@Query() query: any) {
@@ -112,6 +117,7 @@ export class BookingsController {
     return this.service.remove(id);
   }
 }
+
 
 
 

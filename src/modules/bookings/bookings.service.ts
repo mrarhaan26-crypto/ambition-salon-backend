@@ -699,6 +699,64 @@ export class BookingsService {
       created,
     };
   }
+  async calendarResourceAvailability(query: any) {
+    const baseDate = query.date ? new Date(query.date) : new Date();
+
+    if (Number.isNaN(baseDate.getTime())) {
+      throw new BadRequestException('Invalid resource availability date');
+    }
+
+    const start = new Date(baseDate);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(start);
+    end.setDate(start.getDate() + 1);
+
+    const resources = await this.prisma.resource.findMany({
+      where: {
+        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(query.type ? { type: query.type } : {}),
+        isActive: true,
+      },
+      select: {
+        id: true,
+        branchId: true,
+        name: true,
+        type: true,
+        description: true,
+        isActive: true,
+      },
+      orderBy: [
+        { branchId: 'asc' },
+        { type: 'asc' },
+        { name: 'asc' },
+      ],
+    });
+
+    return {
+      date: start.toISOString().slice(0, 10),
+      range: {
+        start: start.toISOString(),
+        end: end.toISOString(),
+      },
+      filters: {
+        branchId: query.branchId ?? null,
+        type: query.type ?? null,
+      },
+      totalResources: resources.length,
+      availableResources: resources.length,
+      occupiedResources: 0,
+      resources: resources.map((resource) => ({
+        ...resource,
+        availabilityStatus: 'AVAILABLE',
+        occupiedMinutes: 0,
+        availableMinutes: 1440,
+        utilizationPercent: 0,
+        timeline: [],
+      })),
+    };
+  }
+
 
   async calendarResources(query: any) {
     const baseDate = query.date ? new Date(query.date) : new Date();
@@ -1233,6 +1291,7 @@ export class BookingsService {
     return result;
   }
 }
+
 
 
 
