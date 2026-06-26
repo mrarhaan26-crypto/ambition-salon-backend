@@ -1,4 +1,4 @@
-type NormalizedBookingService = {
+﻿type NormalizedBookingService = {
   name: string;
   durationMin: number;
   price: number;
@@ -245,6 +245,120 @@ export class BookingsService {
       where: { id },
       data,
       include: { client: true, branch: true, staff: true, services: true },
+    });
+  }
+
+  async reschedule(id: string, body: any) {
+    if (!body.startTime) {
+      throw new BadRequestException('New start time is required');
+    }
+
+    const newStartTime = new Date(body.startTime);
+
+    if (Number.isNaN(newStartTime.getTime())) {
+      throw new BadRequestException('Invalid new start time');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const booking = await tx.booking.findUnique({
+        where: { id },
+        include: { services: true },
+      });
+
+      if (!booking) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      if (['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(booking.status)) {
+        throw new BadRequestException(
+          'Completed, cancelled or no-show bookings cannot be rescheduled',
+        );
+      }
+
+      if (!booking.staffId) {
+        throw new BadRequestException('Booking has no assigned staff');
+      }
+
+      const durationMinutes = booking.services.reduce(
+        (total: number, service: { durationMin: number }) =>
+          total + Number(service.durationMin || 0),
+        0,
+      );
+
+      if (!durationMinutes || durationMinutes <= 0) {
+        throw new BadRequestException('Booking services have invalid duration');
+      }
+
+      const newEndTime = new Date(newStartTime.getTime() + durationMinutes * 60_000);
+      const dayOfWeek = newStartTime.getDay();
+
+      const staffAvailability = await tx.staffAvailability.findFirst({
+        where: {
+          branchId: booking.branchId,
+          staffId: booking.staffId,
+          dayOfWeek,
+          isActive: true,
+        },
+      });
+
+      if (!staffAvailability) {
+        throw new ConflictException('Staff is not available on this day');
+      }
+
+      const availabilityStart = this.applyTimeToDate(
+        newStartTime,
+        staffAvailability.startTime,
+      );
+      const availabilityEnd = this.applyTimeToDate(
+        newStartTime,
+        staffAvailability.endTime,
+      );
+
+      if (newStartTime < availabilityStart || newEndTime > availabilityEnd) {
+        throw new ConflictException('New booking time is outside staff availability');
+      }
+
+      const staffConflict = await tx.booking.findFirst({
+        where: {
+          id: { not: id },
+          branchId: booking.branchId,
+          staffId: booking.staffId,
+          status: { in: ACTIVE_BOOKING_STATUSES },
+          startTime: { lt: newEndTime },
+          endTime: { gt: newStartTime },
+        },
+      });
+
+      if (staffConflict) {
+        throw new ConflictException(
+          'Staff already has a booking in this time slot',
+        );
+      }
+
+      const clientConflict = await tx.booking.findFirst({
+        where: {
+          id: { not: id },
+          clientId: booking.clientId,
+          status: { in: ACTIVE_BOOKING_STATUSES },
+          startTime: { lt: newEndTime },
+          endTime: { gt: newStartTime },
+        },
+      });
+
+      if (clientConflict) {
+        throw new ConflictException(
+          'Client already has a booking in this time slot',
+        );
+      }
+
+      return tx.booking.update({
+        where: { id },
+        data: {
+          startTime: newStartTime,
+          endTime: newEndTime,
+        },
+        include: { client: true, branch: true, staff: true, services: true },
+      });
     });
   }
 

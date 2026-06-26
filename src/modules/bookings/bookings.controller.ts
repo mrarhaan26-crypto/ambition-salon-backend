@@ -36,6 +36,11 @@ export class BookingsController {
     return this.service.update(id, body);
   }
 
+  @Patch(':id/reschedule')
+  reschedule(@Param('id') id: string, @Body() body: any) {
+    return this.service.reschedule(id, body);
+  }
+
   @Patch(':id/status')
   updateStatus(@Param('id') id: string, @Body('status') status: BookingStatus) {
     return this.service.updateStatus(id, status);
@@ -46,3 +51,4 @@ export class BookingsController {
     return this.service.remove(id);
   }
 }
+
