@@ -404,31 +404,45 @@ export class BookingsService {
       throw new BadRequestException('Status is required');
     }
 
-    const booking = await this.prisma.booking.findUnique({
-      where: { id },
-    });
-
-    if (!booking) {
-      throw new NotFoundException('Booking not found');
+    if (!Object.values(BookingStatus).includes(status)) {
+      throw new BadRequestException('Invalid booking status');
     }
 
-    const allowedTransitions: Record<BookingStatus, BookingStatus[]> = {
-      PENDING: ['CONFIRMED', 'CANCELLED', 'NO_SHOW'],
-      CONFIRMED: ['CHECKED_IN', 'CANCELLED', 'NO_SHOW'],
-      CHECKED_IN: ['COMPLETED'],
-      COMPLETED: [],
-      CANCELLED: [],
-      NO_SHOW: [],
-    };
+    return this.prisma.$transaction(async (tx) => {
+      const booking = await tx.booking.findUnique({
+        where: { id },
+      });
 
-    if (!allowedTransitions[booking.status].includes(status)) {
-      throw new BadRequestException('Invalid booking status transition');
-    }
+      if (!booking) {
+        throw new NotFoundException('Booking not found');
+      }
 
-    return this.prisma.booking.update({
-      where: { id },
-      data: { status },
-      include: { client: true, branch: true, staff: true, services: true },
+      if (booking.status === status) {
+        throw new BadRequestException(`Booking is already ${status}`);
+      }
+
+      const allowedTransitions: Record<BookingStatus, BookingStatus[]> = {
+        PENDING: ['CONFIRMED', 'CANCELLED', 'NO_SHOW'],
+        CONFIRMED: ['CHECKED_IN', 'CANCELLED', 'NO_SHOW'],
+        CHECKED_IN: ['COMPLETED'],
+        COMPLETED: [],
+        CANCELLED: [],
+        NO_SHOW: [],
+      };
+
+      const nextStatuses = allowedTransitions[booking.status] || [];
+
+      if (!nextStatuses.includes(status)) {
+        throw new BadRequestException(
+          `Invalid booking status transition from ${booking.status} to ${status}`,
+        );
+      }
+
+      return tx.booking.update({
+        where: { id },
+        data: { status },
+        include: { client: true, branch: true, staff: true, services: true },
+      });
     });
   }
 
@@ -597,4 +611,5 @@ export class BookingsService {
     return result;
   }
 }
+
 
