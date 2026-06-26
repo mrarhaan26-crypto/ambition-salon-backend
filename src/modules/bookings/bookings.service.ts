@@ -1,4 +1,4 @@
-﻿type NormalizedBookingService = {
+type NormalizedBookingService = {
   name: string;
   durationMin: number;
   price: number;
@@ -592,6 +592,71 @@ export class BookingsService {
     return this.findAll(query);
   }
 
+  async calendarDay(query: any) {
+    return this.calendarRange(query, 'day');
+  }
+
+  async calendarWeek(query: any) {
+    return this.calendarRange(query, 'week');
+  }
+
+  async calendarMonth(query: any) {
+    return this.calendarRange(query, 'month');
+  }
+
+  private async calendarRange(query: any, view: 'day' | 'week' | 'month') {
+    const baseDate = query.date ? new Date(query.date) : new Date();
+
+    if (Number.isNaN(baseDate.getTime())) {
+      throw new BadRequestException('Invalid calendar date');
+    }
+
+    const start = new Date(baseDate);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(start);
+
+    if (view === 'day') {
+      end.setDate(start.getDate() + 1);
+    }
+
+    if (view === 'week') {
+      const day = start.getDay();
+      const diffToMonday = day === 0 ? -6 : 1 - day;
+      start.setDate(start.getDate() + diffToMonday);
+      end.setTime(start.getTime());
+      end.setDate(start.getDate() + 7);
+    }
+
+    if (view === 'month') {
+      start.setDate(1);
+      end.setTime(start.getTime());
+      end.setMonth(start.getMonth() + 1);
+    }
+
+    return this.prisma.booking.findMany({
+      where: {
+        startTime: {
+          gte: start,
+          lt: end,
+        },
+        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(query.staffId ? { staffId: query.staffId } : {}),
+        ...(query.status ? { status: query.status } : {}),
+      },
+      include: {
+        client: true,
+        staff: true,
+        branch: true,
+        services: true,
+      },
+      orderBy: [
+        { startTime: 'asc' },
+        { createdAt: 'asc' },
+      ],
+    });
+  }
+
   private applyTimeToDate(date: Date, time: string) {
     const [hours, minutes] = time.split(':').map((value) => Number(value));
     const result = new Date(date);
@@ -611,5 +676,7 @@ export class BookingsService {
     return result;
   }
 }
+
+
 
 

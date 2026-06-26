@@ -1,4 +1,4 @@
-﻿import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { BookingStatus } from '@prisma/client';
 import { BookingsService } from './bookings.service';
 
@@ -9,6 +9,22 @@ export class BookingsController {
   @Get()
   findAll(@Query() query: any) {
     return this.service.findAll(query);
+  }
+
+  
+  @Get('calendar/day')
+  calendarDay(@Query() query: any) {
+    return this.service.calendarDay(query);
+  }
+
+  @Get('calendar/week')
+  calendarWeek(@Query() query: any) {
+    return this.service.calendarWeek(query);
+  }
+
+  @Get('calendar/month')
+  calendarMonth(@Query() query: any) {
+    return this.service.calendarMonth(query);
   }
 
   @Get('calendar')
@@ -56,5 +72,7 @@ export class BookingsController {
     return this.service.remove(id);
   }
 }
+
+
 
 
