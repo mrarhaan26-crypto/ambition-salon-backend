@@ -699,6 +699,100 @@ export class BookingsService {
       created,
     };
   }
+  async calendarResourceConflicts(query: any) {
+    if (!query.branchId) {
+      throw new BadRequestException('branchId is required');
+    }
+
+    const baseDate = query.date ? new Date(query.date) : new Date();
+
+    if (Number.isNaN(baseDate.getTime())) {
+      throw new BadRequestException('Invalid resource conflict date');
+    }
+
+    const start = new Date(baseDate);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(start);
+    end.setDate(start.getDate() + 1);
+
+    const [resources, bookings] = await this.prisma.$transaction([
+      this.prisma.resource.findMany({
+        where: {
+          branchId: query.branchId,
+          isActive: true,
+          ...(query.type ? { type: query.type } : {}),
+        },
+        select: {
+          id: true,
+          branchId: true,
+          name: true,
+          type: true,
+        },
+        orderBy: [
+          { type: 'asc' },
+          { name: 'asc' },
+        ],
+      }),
+      this.prisma.booking.findMany({
+        where: {
+          branchId: query.branchId,
+          startTime: {
+            gte: start,
+            lt: end,
+          },
+          status: {
+            not: 'CANCELLED',
+          },
+        },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          startTime: true,
+          endTime: true,
+          staffId: true,
+          clientId: true,
+          services: true,
+        },
+        orderBy: {
+          startTime: 'asc',
+        },
+      }),
+    ]);
+
+    const timeline = bookings.map((booking) => ({
+      bookingId: booking.id,
+      title: booking.title,
+      status: booking.status,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      staffId: booking.staffId,
+      clientId: booking.clientId,
+      services: booking.services,
+      requiresResourceAssignment: true,
+      assignedResourceId: null,
+      conflictStatus: resources.length === 0 ? 'NO_RESOURCE_AVAILABLE' : 'UNASSIGNED',
+    }));
+
+    return {
+      date: start.toISOString().slice(0, 10),
+      range: {
+        start: start.toISOString(),
+        end: end.toISOString(),
+      },
+      filters: {
+        branchId: query.branchId,
+        type: query.type ?? null,
+      },
+      resourceCount: resources.length,
+      bookingCount: bookings.length,
+      conflictCount: timeline.filter((item) => item.conflictStatus !== 'UNASSIGNED').length,
+      resources,
+      timeline,
+    };
+  }
+
   async calendarResourceAvailability(query: any) {
     const baseDate = query.date ? new Date(query.date) : new Date();
 
@@ -1291,6 +1385,7 @@ export class BookingsService {
     return result;
   }
 }
+
 
 
 
