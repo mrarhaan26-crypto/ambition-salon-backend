@@ -39,12 +39,12 @@ model Branch {
   city              String?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
-  walkIns           WalkIn[]
-  waitlistEntries   WaitlistEntry[]
   bookings          Booking[]
   salon             Salon               @relation(fields: [salonId], references: [id])
-  staffAvailability StaffAvailability[]
   Resource          Resource[]
+  staffAvailability StaffAvailability[]
+  waitlistEntries   WaitlistEntry[]
+  walkIns           WalkIn[]
 }
 
 model Lead {
@@ -79,9 +79,9 @@ model Client {
   lastVisitAt           DateTime?
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
-  walkIns               WalkIn[]
-  clientWaitlistEntries WaitlistEntry[]
   bookings              Booking[]
+  clientWaitlistEntries WaitlistEntry[]
+  walkIns               WalkIn[]
 }
 
 model Booking {
@@ -97,11 +97,11 @@ model Booking {
   totalAmount Float            @default(0)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
-  walkIns     WalkIn[]
   branch      Branch           @relation(fields: [branchId], references: [id])
   client      Client           @relation(fields: [clientId], references: [id])
   staff       User?            @relation("StaffBookings", fields: [staffId], references: [id])
   services    BookingService[]
+  walkIns     WalkIn[]
 
   @@index([branchId])
   @@index([clientId])
@@ -166,14 +166,6 @@ model WaitlistEntry {
   @@index([priority])
 }
 
-enum WaitlistStatus {
-  WAITING
-  CONTACTED
-  BOOKED
-  CANCELLED
-  EXPIRED
-}
-
 model Resource {
   id          String       @id @default(cuid())
   branchId    String
@@ -188,6 +180,87 @@ model Resource {
   @@index([branchId])
   @@index([type])
   @@index([isActive])
+}
+
+model WalkIn {
+  id                   String       @id @default(cuid())
+  branchId             String
+  clientId             String?
+  staffId              String?
+  bookingId            String?
+  customerName         String?
+  phone                String?
+  serviceName          String?
+  notes                String?
+  status               WalkInStatus @default(WAITING)
+  queueNumber          Int
+  arrivalTime          DateTime     @default(now())
+  estimatedWaitMinutes Int          @default(0)
+  calledAt             DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  booking              Booking?     @relation(fields: [bookingId], references: [id])
+  branch               Branch       @relation(fields: [branchId], references: [id])
+  client               Client?      @relation(fields: [clientId], references: [id])
+  staff                User?        @relation("StaffWalkIns", fields: [staffId], references: [id])
+
+  @@index([branchId])
+  @@index([clientId])
+  @@index([staffId])
+  @@index([bookingId])
+  @@index([status])
+  @@index([arrivalTime])
+  @@index([queueNumber])
+}
+
+model Notification {
+  id        String               @id @default(cuid())
+  branchId  String?
+  userId    String?
+  type      NotificationType
+  priority  NotificationPriority @default(MEDIUM)
+  title     String
+  message   String
+  link      String?
+  read      Boolean              @default(false)
+  archived  Boolean              @default(false)
+  readAt    DateTime?
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@index([branchId])
+  @@index([userId])
+  @@index([type])
+  @@index([read])
+  @@index([archived])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  BOOKING
+  WAITLIST
+  WALK_IN
+  AI_ALERT
+  STAFF_ALERT
+  SYSTEM_ALERT
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum WaitlistStatus {
+  WAITING
+  CONTACTED
+  BOOKED
+  CANCELLED
+  EXPIRED
 }
 
 enum ResourceType {
@@ -233,39 +306,4 @@ enum WalkInStatus {
   CANCELLED
   NO_SHOW
   CONVERTED
-}
-
-model WalkIn {
-  id                   String       @id @default(cuid())
-  branchId             String
-  clientId             String?
-  staffId              String?
-  bookingId            String?
-  customerName         String?
-  phone                String?
-  serviceName          String?
-  notes                String?
-  status               WalkInStatus @default(WAITING)
-  queueNumber          Int
-  arrivalTime          DateTime     @default(now())
-  estimatedWaitMinutes Int          @default(0)
-  calledAt             DateTime?
-  startedAt            DateTime?
-  completedAt          DateTime?
-  cancelledAt          DateTime?
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
-
-  branch  Branch   @relation(fields: [branchId], references: [id])
-  client  Client?  @relation(fields: [clientId], references: [id])
-  staff   User?    @relation("StaffWalkIns", fields: [staffId], references: [id])
-  booking Booking? @relation(fields: [bookingId], references: [id])
-
-  @@index([branchId])
-  @@index([clientId])
-  @@index([staffId])
-  @@index([bookingId])
-  @@index([status])
-  @@index([arrivalTime])
-  @@index([queueNumber])
 }

@@ -13,6 +13,11 @@ import { WaitlistModule } from './modules/waitlist/waitlist.module';
 import { WalkInsModule } from './modules/walkins/walkins.module';
 import { AiSchedulerModule } from './modules/ai-scheduler/ai-scheduler.module';
 import { CalendarAnalyticsModule } from './modules/calendar-analytics/calendar-analytics.module';
+import { AiCommandCenterModule } from './modules/ai-command-center/ai-command-center.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { GlobalSearchModule } from './modules/global-search/global-search.module';
+import { AiInsightsModule } from './modules/ai-insights/ai-insights.module';
+import { DashboardAnalyticsModule } from './modules/dashboard-analytics/dashboard-analytics.module';
 
 @Module({
   imports: [
@@ -29,6 +34,11 @@ import { CalendarAnalyticsModule } from './modules/calendar-analytics/calendar-a
     WalkInsModule,
     AiSchedulerModule,
     CalendarAnalyticsModule,
+    AiCommandCenterModule,
+    NotificationsModule,
+    GlobalSearchModule,
+    AiInsightsModule,
+    DashboardAnalyticsModule,
   ],
   providers: [PrismaService],
 })
