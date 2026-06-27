@@ -10,6 +10,9 @@ import { SalonsModule } from './modules/salons/salons.module';
 import { ClientsModule } from './modules/clients/clients.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { WaitlistModule } from './modules/waitlist/waitlist.module';
+import { WalkInsModule } from './modules/walkins/walkins.module';
+import { AiSchedulerModule } from './modules/ai-scheduler/ai-scheduler.module';
+import { CalendarAnalyticsModule } from './modules/calendar-analytics/calendar-analytics.module';
 
 @Module({
   imports: [
@@ -23,8 +26,13 @@ import { WaitlistModule } from './modules/waitlist/waitlist.module';
     ClientsModule,
     BookingsModule,
     WaitlistModule,
+    WalkInsModule,
+    AiSchedulerModule,
+    CalendarAnalyticsModule,
   ],
   providers: [PrismaService],
 })
 export class AppModule {}
+
+
 

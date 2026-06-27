@@ -19,6 +19,7 @@ model User {
   ownedSalons          Salon[]
   staffAvailability    StaffAvailability[]
   staffWaitlistEntries WaitlistEntry[]     @relation("StaffWaitlistEntries")
+  staffWalkIns         WalkIn[]            @relation("StaffWalkIns")
 }
 
 model Salon {
@@ -38,6 +39,7 @@ model Branch {
   city              String?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
+  walkIns           WalkIn[]
   waitlistEntries   WaitlistEntry[]
   bookings          Booking[]
   salon             Salon               @relation(fields: [salonId], references: [id])
@@ -77,6 +79,7 @@ model Client {
   lastVisitAt           DateTime?
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
+  walkIns               WalkIn[]
   clientWaitlistEntries WaitlistEntry[]
   bookings              Booking[]
 }
@@ -94,6 +97,7 @@ model Booking {
   totalAmount Float            @default(0)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
+  walkIns     WalkIn[]
   branch      Branch           @relation(fields: [branchId], references: [id])
   client      Client           @relation(fields: [clientId], references: [id])
   staff       User?            @relation("StaffBookings", fields: [staffId], references: [id])
@@ -219,4 +223,49 @@ enum BookingStatus {
   COMPLETED
   CANCELLED
   NO_SHOW
+}
+
+enum WalkInStatus {
+  WAITING
+  CALLED
+  IN_SERVICE
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  CONVERTED
+}
+
+model WalkIn {
+  id                   String       @id @default(cuid())
+  branchId             String
+  clientId             String?
+  staffId              String?
+  bookingId            String?
+  customerName         String?
+  phone                String?
+  serviceName          String?
+  notes                String?
+  status               WalkInStatus @default(WAITING)
+  queueNumber          Int
+  arrivalTime          DateTime     @default(now())
+  estimatedWaitMinutes Int          @default(0)
+  calledAt             DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  branch  Branch   @relation(fields: [branchId], references: [id])
+  client  Client?  @relation(fields: [clientId], references: [id])
+  staff   User?    @relation("StaffWalkIns", fields: [staffId], references: [id])
+  booking Booking? @relation(fields: [bookingId], references: [id])
+
+  @@index([branchId])
+  @@index([clientId])
+  @@index([staffId])
+  @@index([bookingId])
+  @@index([status])
+  @@index([arrivalTime])
+  @@index([queueNumber])
 }
