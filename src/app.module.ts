@@ -9,6 +9,7 @@ import { UsersModule } from './modules/users/users.module';
 import { SalonsModule } from './modules/salons/salons.module';
 import { ClientsModule } from './modules/clients/clients.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
+import { WaitlistModule } from './modules/waitlist/waitlist.module';
 
 @Module({
   imports: [
@@ -21,7 +22,9 @@ import { BookingsModule } from './modules/bookings/bookings.module';
     SalonsModule,
     ClientsModule,
     BookingsModule,
+    WaitlistModule,
   ],
   providers: [PrismaService],
 })
 export class AppModule {}
+
