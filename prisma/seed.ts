@@ -112,6 +112,9 @@ async function main() {
   await prisma.booking.deleteMany({
     where: { branchId: branch.id },
   });
+  await prisma.walkIn.deleteMany({ where: { branchId: branch.id } });
+  await prisma.waitlistEntry.deleteMany({ where: { branchId: branch.id } });
+  await prisma.notification.deleteMany();
 
   const now = new Date();
 
@@ -150,6 +153,7 @@ async function main() {
     },
   ];
 
+  const createdBookings = [];
   for (let i = 0; i < bookings.length; i++) {
     const b = bookings[i];
     const startTime = new Date(now);
@@ -159,7 +163,7 @@ async function main() {
     const endTime = new Date(startTime);
     endTime.setMinutes(endTime.getMinutes() + b.services.reduce((sum, s) => sum + s.durationMin, 0));
 
-    await prisma.booking.create({
+    const created = await prisma.booking.create({
       data: {
         branchId: branch.id,
         clientId: b.clientId,
@@ -175,7 +179,70 @@ async function main() {
         },
       },
     });
+    createdBookings.push(created);
   }
+
+  const walkInData = [
+    { customerName: 'Anita Desai', phone: '9988776655', serviceName: 'Haircut', status: 'WAITING', queueNumber: 1, estimatedWaitMinutes: 15 },
+    { customerName: 'Vikram Singh', phone: '8877665544', serviceName: 'Beard Trim', status: 'COMPLETED', queueNumber: 2, estimatedWaitMinutes: 0, completedAt: new Date(now.getTime() - 1800000) },
+  ];
+
+  for (const w of walkInData) {
+    const arrivalTime = new Date(now);
+    arrivalTime.setHours(arrivalTime.getHours() - 1);
+    await prisma.walkIn.create({
+      data: {
+        branchId: branch.id,
+        clientId: w.status === 'COMPLETED' ? clients[0].id : undefined,
+        staffId: w.status === 'COMPLETED' ? stylist.id : undefined,
+        customerName: w.customerName,
+        phone: w.phone,
+        serviceName: w.serviceName,
+        status: w.status as any,
+        queueNumber: w.queueNumber,
+        arrivalTime,
+        estimatedWaitMinutes: w.estimatedWaitMinutes,
+        ...(w.completedAt ? { completedAt: w.completedAt } : {}),
+      },
+    });
+  }
+
+  await prisma.waitlistEntry.create({
+    data: {
+      branchId: branch.id,
+      clientId: clients[1].id,
+      staffId: stylist.id,
+      requestedDate: new Date(now.getTime() + 86400000),
+      preferredStart: new Date(now.getTime() + 86400000 + 3600000 * 10),
+      preferredEnd: new Date(now.getTime() + 86400000 + 3600000 * 12),
+      serviceName: 'Hair Color',
+      notes: 'Prefers morning slot',
+      status: 'WAITING',
+      priority: 1,
+    },
+  });
+
+  await prisma.notification.create({
+    data: {
+      branchId: branch.id,
+      type: 'SYSTEM_ALERT',
+      priority: 'LOW',
+      title: 'Welcome to Ambition Unisex Salon',
+      message: 'AI Command Center and Dashboard Analytics are now active. Explore insights and recommendations.',
+      link: '/app/ai-command-center',
+    },
+  });
+
+  await prisma.notification.create({
+    data: {
+      branchId: branch.id,
+      type: 'BOOKING',
+      priority: 'MEDIUM',
+      title: 'New booking confirmed',
+      message: `Booking "${createdBookings[0].title}" for ${clients[0].fullName} has been confirmed.`,
+      link: '/app/bookings',
+    },
+  });
 
   console.log('Seed completed successfully');
   console.log('Login email: owner@ambitionsalon.com');
