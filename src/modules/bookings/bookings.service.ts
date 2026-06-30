@@ -211,6 +211,7 @@ export class BookingsService {
 
         const resourceConflict = await tx.booking.findFirst({
           where: {
+            branchId: body.branchId,
             resourceId: body.resourceId,
             status: { in: ACTIVE_BOOKING_STATUSES },
             startTime: { lt: conflictEndTime },
@@ -370,6 +371,22 @@ export class BookingsService {
         throw new ConflictException(
           'Client already has a booking in this time slot',
         );
+      }
+
+      const targetResourceId = body.resourceId !== undefined ? body.resourceId : booking.resourceId;
+      if (targetResourceId) {
+        const resourceConflict = await tx.booking.findFirst({
+          where: {
+            id: { not: id },
+            resourceId: targetResourceId,
+            status: { in: ACTIVE_BOOKING_STATUSES },
+            startTime: { lt: newEndTime },
+            endTime: { gt: newStartTime },
+          },
+        });
+        if (resourceConflict) {
+          throw new ConflictException('Resource is already booked in this time slot');
+        }
       }
 
       return tx.booking.update({
@@ -775,6 +792,7 @@ export class BookingsService {
           endTime: true,
           staffId: true,
           clientId: true,
+          resourceId: true,
           services: true,
         },
         orderBy: {
@@ -783,19 +801,45 @@ export class BookingsService {
       }),
     ]);
 
-    const timeline = bookings.map((booking) => ({
-      bookingId: booking.id,
-      title: booking.title,
-      status: booking.status,
-      startTime: booking.startTime,
-      endTime: booking.endTime,
-      staffId: booking.staffId,
-      clientId: booking.clientId,
-      services: booking.services,
-      requiresResourceAssignment: true,
-      assignedResourceId: null,
-      conflictStatus: resources.length === 0 ? 'NO_RESOURCE_AVAILABLE' : 'UNASSIGNED',
-    }));
+    const resourceBookingMap = new Map<string, typeof bookings>();
+    for (const b of bookings) {
+      if (!b.resourceId) continue;
+      if (!resourceBookingMap.has(b.resourceId)) resourceBookingMap.set(b.resourceId, []);
+      resourceBookingMap.get(b.resourceId)!.push(b);
+    }
+
+    const timeline = bookings.map((booking) => {
+      let conflictStatus = 'UNASSIGNED';
+      let assignedResourceId: string | null = null;
+
+      if (booking.resourceId) {
+        assignedResourceId = booking.resourceId;
+        const resourceBookings = resourceBookingMap.get(booking.resourceId) || [];
+        const overlapping = resourceBookings.some(
+          (rb) => rb.id !== booking.id && new Date(rb.startTime) < new Date(booking.endTime) && new Date(rb.endTime) > new Date(booking.startTime)
+        );
+        conflictStatus = overlapping ? 'CONFLICT' : 'ASSIGNED_CLEAR';
+      } else if (resources.length === 0) {
+        conflictStatus = 'NO_RESOURCE_AVAILABLE';
+      }
+
+      return {
+        bookingId: booking.id,
+        title: booking.title,
+        status: booking.status,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        staffId: booking.staffId,
+        clientId: booking.clientId,
+        resourceId: booking.resourceId,
+        services: booking.services,
+        requiresResourceAssignment: true,
+        assignedResourceId,
+        conflictStatus,
+      };
+    });
+
+    const conflictCount = timeline.filter((item) => item.conflictStatus === 'CONFLICT' || item.conflictStatus === 'NO_RESOURCE_AVAILABLE').length;
 
     return {
       date: start.toISOString().slice(0, 10),
@@ -809,7 +853,7 @@ export class BookingsService {
       },
       resourceCount: resources.length,
       bookingCount: bookings.length,
-      conflictCount: timeline.filter((item) => item.conflictStatus !== 'UNASSIGNED').length,
+      conflictCount,
       resources,
       timeline,
     };
@@ -828,26 +872,79 @@ export class BookingsService {
     const end = new Date(start);
     end.setDate(start.getDate() + 1);
 
-    const resources = await this.prisma.resource.findMany({
-      where: {
-        ...(query.branchId ? { branchId: query.branchId } : {}),
-        ...(query.type ? { type: query.type } : {}),
-        isActive: true,
-      },
-      select: {
-        id: true,
-        branchId: true,
-        name: true,
-        type: true,
-        description: true,
-        isActive: true,
-      },
-      orderBy: [
-        { branchId: 'asc' },
-        { type: 'asc' },
-        { name: 'asc' },
-      ],
+    const [resources, dayBookings] = await this.prisma.$transaction([
+      this.prisma.resource.findMany({
+        where: {
+          ...(query.branchId ? { branchId: query.branchId } : {}),
+          ...(query.type ? { type: query.type } : {}),
+          isActive: true,
+        },
+        select: {
+          id: true,
+          branchId: true,
+          name: true,
+          type: true,
+          description: true,
+          isActive: true,
+        },
+        orderBy: [
+          { branchId: 'asc' },
+          { type: 'asc' },
+          { name: 'asc' },
+        ],
+      }),
+      this.prisma.booking.findMany({
+        where: {
+          resourceId: { not: null },
+          startTime: { gte: start, lt: end },
+          status: { in: ['PENDING', 'CONFIRMED', 'CHECKED_IN'] },
+        },
+        select: {
+          id: true,
+          resourceId: true,
+          title: true,
+          startTime: true,
+          endTime: true,
+        },
+      }),
+    ]);
+
+    const DAY_MINUTES = 1440;
+    const resourceMap = new Map(resources.map(r => [r.id, r]));
+
+    const byResource = new Map<string, typeof dayBookings>();
+    for (const b of dayBookings) {
+      if (!b.resourceId) continue;
+      if (!byResource.has(b.resourceId)) byResource.set(b.resourceId, []);
+      byResource.get(b.resourceId)!.push(b);
+    }
+
+    const resourceResults = resources.map((resource) => {
+      const bookings = byResource.get(resource.id) || [];
+      let occupiedMinutes = 0;
+      const timeline: Array<{ bookingId: string; title: string; startTime: Date; endTime: Date }> = [];
+
+      for (const b of bookings) {
+        const bStart = new Date(b.startTime);
+        const bEnd = new Date(b.endTime);
+        const duration = Math.max(0, Math.round((bEnd.getTime() - bStart.getTime()) / 60000));
+        occupiedMinutes += duration;
+        timeline.push({ bookingId: b.id, title: b.title, startTime: bStart, endTime: bEnd });
+      }
+
+      const availabilityStatus = bookings.length === 0 ? 'AVAILABLE' : occupiedMinutes >= DAY_MINUTES ? 'OCCUPIED' : 'PARTIAL';
+
+      return {
+        ...resource,
+        availabilityStatus,
+        occupiedMinutes,
+        availableMinutes: DAY_MINUTES - occupiedMinutes,
+        utilizationPercent: Math.min(100, Math.round((occupiedMinutes / DAY_MINUTES) * 100)),
+        timeline,
+      };
     });
+
+    const occupiedCount = resourceResults.filter(r => r.availabilityStatus !== 'AVAILABLE').length;
 
     return {
       date: start.toISOString().slice(0, 10),
@@ -860,16 +957,9 @@ export class BookingsService {
         type: query.type ?? null,
       },
       totalResources: resources.length,
-      availableResources: resources.length,
-      occupiedResources: 0,
-      resources: resources.map((resource) => ({
-        ...resource,
-        availabilityStatus: 'AVAILABLE',
-        occupiedMinutes: 0,
-        availableMinutes: 1440,
-        utilizationPercent: 0,
-        timeline: [],
-      })),
+      availableResources: resources.length - occupiedCount,
+      occupiedResources: occupiedCount,
+      resources: resourceResults,
     };
   }
 

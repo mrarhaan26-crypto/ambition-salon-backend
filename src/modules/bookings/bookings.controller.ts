@@ -1,7 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, ValidationPipe } from '@nestjs/common';
 import { BookingStatus } from '@prisma/client';
 import { BookingsService } from './bookings.service';
+import { CreateBookingDto } from './dto/create-booking.dto';
+import { CancelBookingDto } from './dto/cancel-booking.dto';
+import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
+import { GetBookingSlotsDto } from './dto/get-booking-slots.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
+@UseGuards(JwtAuthGuard)
 @Controller('bookings')
 export class BookingsController {
   constructor(private readonly service: BookingsService) {}
@@ -83,7 +89,7 @@ export class BookingsController {
   }
 
   @Get('slots')
-  getAvailableSlots(@Query() query: any) {
+  getAvailableSlots(@Query(new ValidationPipe({ whitelist: true, transform: true })) query: GetBookingSlotsDto) {
     return this.service.getAvailableSlots(query);
   }
 
@@ -93,7 +99,7 @@ export class BookingsController {
   }
 
   @Post()
-  create(@Body() body: any) {
+  create(@Body(new ValidationPipe({ whitelist: true, transform: true })) body: CreateBookingDto) {
     return this.service.create(body);
   }
 
@@ -103,12 +109,12 @@ export class BookingsController {
   }
 
   @Patch(':id/reschedule')
-  reschedule(@Param('id') id: string, @Body() body: any) {
+  reschedule(@Param('id') id: string, @Body(new ValidationPipe({ whitelist: true, transform: true })) body: RescheduleBookingDto) {
     return this.service.reschedule(id, body);
   }
 
   @Patch(':id/cancel')
-  cancel(@Param('id') id: string, @Body() body: any) {
+  cancel(@Param('id') id: string, @Body(new ValidationPipe({ whitelist: true, transform: true })) body: CancelBookingDto) {
     return this.service.cancel(id, body);
   }
 
