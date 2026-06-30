@@ -532,7 +532,7 @@ export class BookingsService {
       throw new NotFoundException('Staff not found');
     }
 
-    const services = await this.prisma.bookingService.findMany({
+    const services = await this.prisma.service.findMany({
       where: {
         id: {
           in: serviceIdList,
