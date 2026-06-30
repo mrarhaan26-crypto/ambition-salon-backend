@@ -86,6 +86,46 @@ async function main() {
     }));
   }
 
+  const categories = [
+    { id: 'seed-cat-hair', name: 'Hair Services' },
+    { id: 'seed-cat-skin', name: 'Skincare & Facial' },
+    { id: 'seed-cat-makeup', name: 'Makeup' },
+    { id: 'seed-cat-grooming', name: 'Grooming' },
+    { id: 'seed-cat-spa', name: 'Spa & Therapy' },
+  ];
+
+  for (const cat of categories) {
+    await prisma.serviceCategory.upsert({
+      where: { id: cat.id },
+      update: { name: cat.name },
+      create: cat,
+    });
+  }
+
+  const servicesData = [
+    { categoryId: 'seed-cat-hair', name: 'Haircut', durationMin: 45, price: 700 },
+    { categoryId: 'seed-cat-hair', name: 'Blow Dry', durationMin: 30, price: 500 },
+    { categoryId: 'seed-cat-hair', name: 'Hair Color', durationMin: 120, price: 2500 },
+    { categoryId: 'seed-cat-hair', name: 'Hair Spa', durationMin: 60, price: 1100 },
+    { categoryId: 'seed-cat-skin', name: 'Facial', durationMin: 45, price: 900 },
+    { categoryId: 'seed-cat-skin', name: 'Clean Up', durationMin: 30, price: 500 },
+    { categoryId: 'seed-cat-makeup', name: 'Makeup Trial', durationMin: 120, price: 3500 },
+    { categoryId: 'seed-cat-makeup', name: 'Bridal Makeup', durationMin: 180, price: 8000 },
+    { categoryId: 'seed-cat-grooming', name: 'Beard Trim', durationMin: 30, price: 300 },
+    { categoryId: 'seed-cat-grooming', name: 'Threading', durationMin: 20, price: 200 },
+    { categoryId: 'seed-cat-spa', name: 'Head Massage', durationMin: 30, price: 600 },
+    { categoryId: 'seed-cat-spa', name: 'Aroma Therapy', durationMin: 60, price: 1200 },
+  ];
+
+  for (const svc of servicesData) {
+    const svcId = `seed-svc-${svc.name.toLowerCase().replace(/\s+/g, '-')}`;
+    await prisma.service.upsert({
+      where: { id: svcId },
+      update: { name: svc.name, durationMin: svc.durationMin, price: svc.price, categoryId: svc.categoryId, isActive: true },
+      create: { id: svcId, ...svc, isActive: true },
+    });
+  }
+
   for (const day of [1, 2, 3, 4, 5, 6]) {
     await prisma.staffAvailability.upsert({
       where: {
