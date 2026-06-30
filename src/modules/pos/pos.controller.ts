@@ -1,6 +1,8 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PosService } from './pos.service';
 
+@UseGuards(JwtAuthGuard)
 @Controller('pos')
 export class PosController {
   constructor(private readonly service: PosService) {}
@@ -35,3 +37,4 @@ export class PosController {
     return this.service.getPaymentMethods();
   }
 }
+
