@@ -5,10 +5,16 @@ import { PrismaService } from '../../common/prisma.service';
 export class PosService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private readonly saleInclude = {
+    items: true,
+    client: { select: { id: true, fullName: true } },
+    staff: { select: { id: true, fullName: true, email: true, role: true } },
+  };
+
   async getDashboard(query: any) {
     const sales = await this.prisma.posSale.findMany({
       where: query.branchId ? { branchId: query.branchId } : {},
-      include: { items: true, client: { select: { id: true, fullName: true } }, staff: { select: { id: true, fullName: true, email: true, role: true } } },
+      include: this.saleInclude,
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
@@ -44,17 +50,29 @@ export class PosService {
 
     const totalAmount = items.reduce((sum: number, item: any) => sum + item.totalPrice, 0);
 
-    return this.prisma.posSale.create({
-      data: {
-        branchId: body.branchId || 'seed-branch-main',
-        clientId: body.clientId || null,
-        staffId: body.staffId || null,
-        totalAmount,
-        paymentMethod: body.paymentMethod || 'CASH',
-        status: 'COMPLETED',
-        items: { create: items },
-      },
-      include: { items: true, client: { select: { id: true, fullName: true } }, staff: { select: { id: true, fullName: true, email: true, role: true } } },
+    return this.prisma.$transaction(async (tx) => {
+      const sale = await tx.posSale.create({
+        data: {
+          branchId: body.branchId || 'seed-branch-main',
+          clientId: body.clientId || null,
+          staffId: body.staffId || null,
+          totalAmount,
+          paymentMethod: body.paymentMethod || 'CASH',
+          status: 'COMPLETED',
+          items: { create: items },
+        },
+        include: this.saleInclude,
+      });
+
+      const receipt = await tx.receipt.create({
+        data: {
+          posSaleId: sale.id,
+          receiptNumber: `POS-${sale.id}`,
+          amount: sale.totalAmount,
+        },
+      });
+
+      return { ...sale, receipt };
     });
   }
 
@@ -66,7 +84,7 @@ export class PosService {
     if (query.to) where.createdAt = { ...where.createdAt, lte: new Date(query.to) };
     return this.prisma.posSale.findMany({
       where,
-      include: { items: true, client: { select: { id: true, fullName: true } }, staff: { select: { id: true, fullName: true, email: true, role: true } } },
+      include: this.saleInclude,
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
@@ -75,10 +93,16 @@ export class PosService {
   async getSale(id: string) {
     const sale = await this.prisma.posSale.findUnique({
       where: { id },
-      include: { items: true, client: { select: { id: true, fullName: true } }, staff: { select: { id: true, fullName: true, email: true, role: true } } },
+      include: this.saleInclude,
     });
     if (!sale) throw new NotFoundException('Sale not found');
-    return sale;
+
+    const receipt = await this.prisma.receipt.findFirst({
+      where: { posSaleId: sale.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return { ...sale, receipt };
   }
 
   async refund(id: string, body: any) {
@@ -88,7 +112,7 @@ export class PosService {
     return this.prisma.posSale.update({
       where: { id },
       data: { status: 'REFUNDED' },
-      include: { items: true, client: { select: { id: true, fullName: true } }, staff: { select: { id: true, fullName: true, email: true, role: true } } },
+      include: this.saleInclude,
     });
   }
 
@@ -101,4 +125,3 @@ export class PosService {
     ];
   }
 }
-
