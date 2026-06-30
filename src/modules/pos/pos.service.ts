@@ -8,7 +8,7 @@ export class PosService {
   async getDashboard(query: any) {
     const sales = await this.prisma.posSale.findMany({
       where: query.branchId ? { branchId: query.branchId } : {},
-      include: { items: true, client: { select: { id: true, fullName: true } } },
+      include: { items: true, client: { select: { id: true, fullName: true } }, staff: { select: { id: true, fullName: true, email: true, role: true } } },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
@@ -54,7 +54,7 @@ export class PosService {
         status: 'COMPLETED',
         items: { create: items },
       },
-      include: { items: true, client: { select: { id: true, fullName: true } } },
+      include: { items: true, client: { select: { id: true, fullName: true } }, staff: { select: { id: true, fullName: true, email: true, role: true } } },
     });
   }
 
@@ -66,7 +66,7 @@ export class PosService {
     if (query.to) where.createdAt = { ...where.createdAt, lte: new Date(query.to) };
     return this.prisma.posSale.findMany({
       where,
-      include: { items: true, client: { select: { id: true, fullName: true } } },
+      include: { items: true, client: { select: { id: true, fullName: true } }, staff: { select: { id: true, fullName: true, email: true, role: true } } },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
@@ -75,7 +75,7 @@ export class PosService {
   async getSale(id: string) {
     const sale = await this.prisma.posSale.findUnique({
       where: { id },
-      include: { items: true, client: { select: { id: true, fullName: true } } },
+      include: { items: true, client: { select: { id: true, fullName: true } }, staff: { select: { id: true, fullName: true, email: true, role: true } } },
     });
     if (!sale) throw new NotFoundException('Sale not found');
     return sale;
@@ -88,7 +88,7 @@ export class PosService {
     return this.prisma.posSale.update({
       where: { id },
       data: { status: 'REFUNDED' },
-      include: { items: true, client: { select: { id: true, fullName: true } } },
+      include: { items: true, client: { select: { id: true, fullName: true } }, staff: { select: { id: true, fullName: true, email: true, role: true } } },
     });
   }
 
@@ -101,3 +101,4 @@ export class PosService {
     ];
   }
 }
+
