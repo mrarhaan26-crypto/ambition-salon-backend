@@ -205,8 +205,14 @@ export class AiCommandCenterService {
   }
 
   async getCapacityForecast(query: any) {
-    const branchId = query.branchId;
-    if (!branchId) throw new BadRequestException('branchId is required');
+    let branchId = query.branchId;
+    if (!branchId) {
+      const firstBranch = await this.prisma.branch.findFirst({ select: { id: true } });
+      branchId = firstBranch?.id;
+    }
+    if (!branchId) {
+      return { branchId: null, forecastDays: 0, avgUtilization: 0, criticalDays: 0, recommendations: 'NO_BRANCH_AVAILABLE', dailyForecast: [] };
+    }
 
     const days = Math.min(Math.max(Number(query.days) || 7, 1), 30);
     const today = new Date();
@@ -440,11 +446,13 @@ export class AiCommandCenterService {
     const branchId = query.branchId;
     const range = this.getRange(query.from, query.to);
 
-    const [insights, capacity, staffPerf] = await Promise.all([
-      this.getInsights(query),
-      this.getCapacityForecast({ ...query, days: '14' }),
-      this.getStaffPerformance(query),
-    ]);
+    let insights: any = { peakHours: [], busiestDays: [], averages: { avgBookingDurationMin: 0, avgRevenuePerBooking: 0, totalBookings: 0 } };
+    let capacity: any = { branchId: null, forecastDays: 0, avgUtilization: 0, criticalDays: 0, recommendations: 'NO_DATA', dailyForecast: [] };
+    let staffPerf: any = { range: {}, branchId: null, staff: [], topPerformer: null };
+
+    try { insights = await this.getInsights(query); } catch {}
+    try { capacity = await this.getCapacityForecast({ ...query, days: '14' }); } catch {}
+    try { staffPerf = await this.getStaffPerformance(query); } catch {}
 
     const recommendations: Array<{
       type: string;
@@ -454,7 +462,7 @@ export class AiCommandCenterService {
       metric: string;
     }> = [];
 
-    const peakHourData = insights.peakHours.find(
+    const peakHourData = insights.peakHours?.find(
       (h: { isPeak: boolean }) => h.isPeak,
     );
     if (peakHourData && peakHourData.bookingCount > 5) {

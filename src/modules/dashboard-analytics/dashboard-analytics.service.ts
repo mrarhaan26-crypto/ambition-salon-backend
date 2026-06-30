@@ -12,18 +12,21 @@ export class DashboardAnalyticsService {
     const whereDate = { ...where, startTime: { gte: startDate, lte: endDate } };
     const prevWhereDate = { ...where, startTime: { gte: prevStartDate, lte: prevEndDate } };
 
-    const [totalBookings, prevBookings, revenue, prevRevenue, totalClients, newClients, pendingWaitlist, activeWalkIns, totalStaff] =
-      await Promise.all([
-        this.prisma.booking.count({ where: whereDate }),
-        this.prisma.booking.count({ where: prevWhereDate }),
-        this.prisma.booking.aggregate({ where: { ...whereDate, status: { in: ['COMPLETED', 'CHECKED_IN'] } }, _sum: { totalAmount: true } }),
-        this.prisma.booking.aggregate({ where: { ...prevWhereDate, status: { in: ['COMPLETED', 'CHECKED_IN'] } }, _sum: { totalAmount: true } }),
-        this.prisma.client.count(),
-        this.prisma.client.count({ where: { createdAt: { gte: startDate, lte: endDate } } }),
-        this.prisma.waitlistEntry.count({ where: { ...where, status: 'WAITING' } }),
-        this.prisma.walkIn.count({ where: { ...where, status: { in: ['WAITING', 'CALLED', 'IN_SERVICE'] } } }),
-        this.prisma.user.count(),
-      ]);
+    const [totalBookings, prevBookings] = await Promise.all([
+      this.prisma.booking.count({ where: whereDate }),
+      this.prisma.booking.count({ where: prevWhereDate }),
+    ]);
+    const [revenue, prevRevenue] = await Promise.all([
+      this.prisma.booking.aggregate({ where: { ...whereDate, status: { in: ['COMPLETED', 'CHECKED_IN'] } }, _sum: { totalAmount: true } }),
+      this.prisma.booking.aggregate({ where: { ...prevWhereDate, status: { in: ['COMPLETED', 'CHECKED_IN'] } }, _sum: { totalAmount: true } }),
+    ]);
+    const [totalClients, newClients, pendingWaitlist, activeWalkIns, totalStaff] = await Promise.all([
+      this.prisma.client.count(),
+      this.prisma.client.count({ where: { createdAt: { gte: startDate, lte: endDate } } }),
+      this.prisma.waitlistEntry.count({ where: { ...where, status: 'WAITING' } }),
+      this.prisma.walkIn.count({ where: { ...where, status: { in: ['WAITING', 'CALLED', 'IN_SERVICE'] } } }),
+      this.prisma.user.count(),
+    ]);
 
     const bookingGrowth = prevBookings > 0 ? ((totalBookings - prevBookings) / prevBookings) * 100 : 0;
     const revenueGrowth = (prevRevenue._sum.totalAmount ?? 0) > 0
@@ -54,20 +57,17 @@ export class DashboardAnalyticsService {
 
     const statuses = ['COMPLETED', 'CHECKED_IN', 'CONFIRMED', 'PENDING', 'CANCELLED', 'NO_SHOW'];
 
-    const [byStatus, totalRevenue, completedCount] = await Promise.all([
-      Promise.all(
-        statuses.map((status) =>
-          this.prisma.booking.aggregate({
-            where: { ...whereDate, status: status as any },
-            _sum: { totalAmount: true },
-            _count: { id: true },
-          }).then((r) => ({
-            status,
-            amount: r._sum.totalAmount ?? 0,
-            count: r._count.id,
-          })),
-        ),
-      ),
+    const byStatus: Array<{ status: string; amount: number; count: number }> = [];
+    for (const status of statuses) {
+      const r = await this.prisma.booking.aggregate({
+        where: { ...whereDate, status: status as any },
+        _sum: { totalAmount: true },
+        _count: { id: true },
+      });
+      byStatus.push({ status, amount: r._sum.totalAmount ?? 0, count: r._count.id });
+    }
+
+    const [totalRevenue, completedCount] = await Promise.all([
       this.prisma.booking.aggregate({ where: whereDate, _sum: { totalAmount: true } }),
       this.prisma.booking.count({ where: { ...whereDate, status: { in: ['COMPLETED', 'CHECKED_IN'] } } }),
     ]);
@@ -129,16 +129,17 @@ export class DashboardAnalyticsService {
     const where = this.buildWhere(query);
     const whereDate = { ...where, startTime: { gte: startDate, lte: endDate } };
 
-    const [totalBookings, cancelledCount, noShowCount, completedCount, pendingCount, waitlistCount, walkInCount] =
-      await Promise.all([
-        this.prisma.booking.count({ where: whereDate }),
-        this.prisma.booking.count({ where: { ...whereDate, status: 'CANCELLED' } }),
-        this.prisma.booking.count({ where: { ...whereDate, status: 'NO_SHOW' } }),
-        this.prisma.booking.count({ where: { ...whereDate, status: { in: ['COMPLETED', 'CHECKED_IN'] } } }),
-        this.prisma.booking.count({ where: { ...whereDate, status: 'PENDING' } }),
-        this.prisma.waitlistEntry.count({ where: { ...where, createdAt: { gte: startDate, lte: endDate } } }),
-        this.prisma.walkIn.count({ where: { ...where, arrivalTime: { gte: startDate, lte: endDate } } }),
-      ]);
+    const totalBookings = await this.prisma.booking.count({ where: whereDate });
+    const [cancelledCount, noShowCount, completedCount, pendingCount] = await Promise.all([
+      this.prisma.booking.count({ where: { ...whereDate, status: 'CANCELLED' } }),
+      this.prisma.booking.count({ where: { ...whereDate, status: 'NO_SHOW' } }),
+      this.prisma.booking.count({ where: { ...whereDate, status: { in: ['COMPLETED', 'CHECKED_IN'] } } }),
+      this.prisma.booking.count({ where: { ...whereDate, status: 'PENDING' } }),
+    ]);
+    const [waitlistCount, walkInCount] = await Promise.all([
+      this.prisma.waitlistEntry.count({ where: { ...where, createdAt: { gte: startDate, lte: endDate } } }),
+      this.prisma.walkIn.count({ where: { ...where, arrivalTime: { gte: startDate, lte: endDate } } }),
+    ]);
 
     const cancellationRate = totalBookings > 0 ? (cancelledCount / totalBookings) * 100 : 0;
     const noShowRate = totalBookings > 0 ? (noShowCount / totalBookings) * 100 : 0;
@@ -187,34 +188,39 @@ export class DashboardAnalyticsService {
       orderBy: { _count: { id: 'desc' } },
     });
 
-    const staffPerformance = await Promise.all(
-      staffBookings.map(async (s) => {
-        if (!s.staffId) return null;
-        const user = await this.prisma.user.findUnique({
-          where: { id: s.staffId },
-          select: { id: true, fullName: true, email: true, role: true },
-        });
-        if (!user) return null;
+    const staffPerformance: Array<{
+      staffId: string; fullName: string; email: string; role: string;
+      totalBookings: number; completedBookings: number; cancelledBookings: number; revenue: number;
+    }> = [];
 
-        const completedCount = await this.prisma.booking.count({
+    for (const s of staffBookings) {
+      if (!s.staffId) continue;
+      const user = await this.prisma.user.findUnique({
+        where: { id: s.staffId },
+        select: { id: true, fullName: true, email: true, role: true },
+      });
+      if (!user) continue;
+
+      const [completedCount, cancelledCount] = await Promise.all([
+        this.prisma.booking.count({
           where: { ...whereDate, staffId: s.staffId, status: { in: ['COMPLETED', 'CHECKED_IN'] } },
-        });
-        const cancelledCount = await this.prisma.booking.count({
+        }),
+        this.prisma.booking.count({
           where: { ...whereDate, staffId: s.staffId, status: 'CANCELLED' },
-        });
+        }),
+      ]);
 
-        return {
-          staffId: user.id,
-          fullName: user.fullName,
-          email: user.email,
-          role: user.role,
-          totalBookings: s._count.id,
-          completedBookings: completedCount,
-          cancelledBookings: cancelledCount,
-          revenue: s._sum.totalAmount ?? 0,
-        };
-      }),
-    );
+      staffPerformance.push({
+        staffId: user.id,
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+        totalBookings: s._count.id,
+        completedBookings: completedCount,
+        cancelledBookings: cancelledCount,
+        revenue: s._sum.totalAmount ?? 0,
+      });
+    }
 
     const totalStaff = await this.prisma.user.count();
     const activeStaff = staffBookings.length;
@@ -223,7 +229,7 @@ export class DashboardAnalyticsService {
       period: { from: startDate.toISOString(), to: endDate.toISOString() },
       filters: { branchId: query.branchId ?? null },
       summary: { totalStaff, activeStaff, inactiveStaff: totalStaff - activeStaff },
-      staff: staffPerformance.filter(Boolean),
+      staff: staffPerformance,
     };
   }
 
@@ -231,8 +237,8 @@ export class DashboardAnalyticsService {
     const { startDate, endDate } = this.getRanges(query);
     const where = this.buildWhere(query);
 
-    const [totalClients, newClients, returningClients, activeBookings, totalClientsWithVisits] = await Promise.all([
-      this.prisma.client.count(),
+    const totalClients = await this.prisma.client.count();
+    const [newClients, returningClients, activeBookings, totalClientsWithVisits] = await Promise.all([
       this.prisma.client.count({ where: { createdAt: { gte: startDate, lte: endDate } } }),
       this.prisma.client.count({ where: { totalVisits: { gt: 0 }, lastVisitAt: { gte: startDate, lte: endDate } } }),
       this.prisma.booking.count({ where: { ...where, startTime: { gte: startDate, lte: endDate } } }),
@@ -259,11 +265,17 @@ export class DashboardAnalyticsService {
       },
     });
 
+    const visitCounts = await Promise.all([
+      this.prisma.client.count({ where: { totalVisits: { gte: 1, lte: 2 } } }),
+      this.prisma.client.count({ where: { totalVisits: { gte: 3, lte: 5 } } }),
+      this.prisma.client.count({ where: { totalVisits: { gte: 6, lte: 10 } } }),
+      this.prisma.client.count({ where: { totalVisits: { gte: 11 } } }),
+    ]);
     const visitDistribution = [
-      { range: '1-2 visits', count: await this.prisma.client.count({ where: { totalVisits: { gte: 1, lte: 2 } } }) },
-      { range: '3-5 visits', count: await this.prisma.client.count({ where: { totalVisits: { gte: 3, lte: 5 } } }) },
-      { range: '6-10 visits', count: await this.prisma.client.count({ where: { totalVisits: { gte: 6, lte: 10 } } }) },
-      { range: '10+ visits', count: await this.prisma.client.count({ where: { totalVisits: { gte: 11 } } }) },
+      { range: '1-2 visits', count: visitCounts[0] },
+      { range: '3-5 visits', count: visitCounts[1] },
+      { range: '6-10 visits', count: visitCounts[2] },
+      { range: '10+ visits', count: visitCounts[3] },
     ];
 
     return {

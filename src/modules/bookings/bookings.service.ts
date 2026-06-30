@@ -32,7 +32,7 @@ export class BookingsService {
         ...(query?.staffId ? { staffId: query.staffId } : {}),
         ...(query?.status ? { status: query.status } : {}),
       },
-      include: { client: true, branch: true, staff: true, services: true },
+      include: { client: true, branch: true, staff: true, services: true, resource: true },
       orderBy: { startTime: 'asc' },
     });
   }
@@ -40,7 +40,7 @@ export class BookingsService {
   async findOne(id: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
-      include: { client: true, branch: true, staff: true, services: true },
+      include: { client: true, branch: true, staff: true, services: true, resource: true },
     });
 
     if (!booking) throw new NotFoundException('Booking not found');
@@ -203,11 +203,31 @@ export class BookingsService {
         );
       }
 
+      if (body.resourceId) {
+        const resource = await tx.resource.findUnique({
+          where: { id: body.resourceId },
+        });
+        if (!resource) throw new NotFoundException('Resource not found');
+
+        const resourceConflict = await tx.booking.findFirst({
+          where: {
+            resourceId: body.resourceId,
+            status: { in: ACTIVE_BOOKING_STATUSES },
+            startTime: { lt: conflictEndTime },
+            endTime: { gt: conflictStartTime },
+          },
+        });
+        if (resourceConflict) {
+          throw new ConflictException('Resource is already booked in this time slot');
+        }
+      }
+
       return tx.booking.create({
         data: {
           branchId: body.branchId,
           clientId: body.clientId,
           staffId: body.staffId,
+          resourceId: body.resourceId || null,
           title:
             body.title ||
             normalizedServices.map((service) => service.name).join(', '),
@@ -220,7 +240,7 @@ export class BookingsService {
             create: normalizedServices,
           },
         },
-        include: { client: true, branch: true, staff: true, services: true },
+        include: { client: true, branch: true, staff: true, resource: true, services: true },
       });
     });
   }
@@ -233,6 +253,7 @@ export class BookingsService {
       ...(body.notes !== undefined ? { notes: body.notes } : {}),
       ...(body.status !== undefined ? { status: body.status } : {}),
       ...(body.staffId !== undefined ? { staffId: body.staffId || null } : {}),
+      ...(body.resourceId !== undefined ? { resourceId: body.resourceId || null } : {}),
       ...(body.totalAmount !== undefined
         ? { totalAmount: Number(body.totalAmount) }
         : {}),
@@ -244,7 +265,7 @@ export class BookingsService {
     return this.prisma.booking.update({
       where: { id },
       data,
-      include: { client: true, branch: true, staff: true, services: true },
+      include: { client: true, branch: true, staff: true, services: true, resource: true },
     });
   }
 
@@ -356,8 +377,9 @@ export class BookingsService {
         data: {
           startTime: newStartTime,
           endTime: newEndTime,
+          ...(body.resourceId !== undefined ? { resourceId: body.resourceId || null } : {}),
         },
-        include: { client: true, branch: true, staff: true, services: true },
+        include: { client: true, branch: true, staff: true, services: true, resource: true },
       });
     });
   }
@@ -394,7 +416,7 @@ export class BookingsService {
             ? `${booking.notes || ''}${booking.notes ? ' | ' : ''}Cancellation reason: ${reason}`
             : booking.notes,
         },
-        include: { client: true, branch: true, staff: true, services: true },
+        include: { client: true, branch: true, staff: true, resource: true, services: true },
       });
     });
   }
@@ -441,7 +463,7 @@ export class BookingsService {
       return tx.booking.update({
         where: { id },
         data: { status },
-        include: { client: true, branch: true, staff: true, services: true },
+        include: { client: true, branch: true, staff: true, resource: true, services: true },
       });
     });
   }
@@ -1357,6 +1379,7 @@ export class BookingsService {
         client: true,
         staff: true,
         branch: true,
+        resource: true,
         services: true,
       },
       orderBy: [
