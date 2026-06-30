@@ -1,26 +1,48 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
+
+const SORT_WHITELIST = ['fullName', 'createdAt', 'lastVisitAt', 'totalSpend', 'totalVisits'] as const;
 
 @Injectable()
 export class ClientsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(query: any) {
-    const search = query?.search || '';
+    const search = (query?.search || '').trim();
+    const page = Math.max(1, parseInt(query?.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(query?.limit, 10) || 25));
+    const sortBy = (SORT_WHITELIST as readonly string[]).includes(query?.sortBy) ? query.sortBy : 'createdAt';
+    const sortOrder: Prisma.SortOrder = query?.sortOrder === 'asc' ? 'asc' : 'desc';
 
-    return this.prisma.client.findMany({
-      where: search
-        ? {
-            OR: [
-              { fullName: { contains: search, mode: 'insensitive' } },
-              { phone: { contains: search, mode: 'insensitive' } },
-              { email: { contains: search, mode: 'insensitive' } },
-              { city: { contains: search, mode: 'insensitive' } },
-            ],
-          }
-        : {},
-      orderBy: { createdAt: 'desc' },
-    });
+    const where: Prisma.ClientWhereInput = search
+      ? {
+          OR: [
+            { fullName: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+            { city: { contains: search, mode: 'insensitive' } },
+          ],
+        }
+      : {};
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.client.findMany({
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.client.count({ where }),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
   }
 
   async findOne(id: string) {
