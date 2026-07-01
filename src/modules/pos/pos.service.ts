@@ -11,13 +11,55 @@ export class PosService {
     staff: { select: { id: true, fullName: true, email: true, role: true } },
   };
 
+  private async attachReceiptsAndPaymentsToSales(sales: any[]) {
+    const saleIds = sales.map((sale) => sale.id).filter(Boolean);
+
+    if (!saleIds.length) {
+      return sales;
+    }
+
+    const receipts = await this.prisma.receipt.findMany({
+      where: { posSaleId: { in: saleIds } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const payments = await this.prisma.payment.findMany({
+      where: { posSaleId: { in: saleIds } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const receiptBySaleId = new Map<string, any>();
+    const paymentBySaleId = new Map<string, any>();
+
+    receipts.forEach((receipt) => {
+      if (receipt.posSaleId && !receiptBySaleId.has(receipt.posSaleId)) {
+        receiptBySaleId.set(receipt.posSaleId, receipt);
+      }
+    });
+
+    payments.forEach((payment) => {
+      if (payment.posSaleId && !paymentBySaleId.has(payment.posSaleId)) {
+        paymentBySaleId.set(payment.posSaleId, payment);
+      }
+    });
+
+    return sales.map((sale) => ({
+      ...sale,
+      receipt: receiptBySaleId.get(sale.id) || null,
+      payment: paymentBySaleId.get(sale.id) || null,
+    }));
+  }
+
   async getDashboard(query: any) {
-    const sales = await this.prisma.posSale.findMany({
+    const salesRaw = await this.prisma.posSale.findMany({
       where: query.branchId ? { branchId: query.branchId } : {},
       include: this.saleInclude,
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+
+    const sales = await this.attachReceiptsAndPaymentsToSales(salesRaw);
+
     const totals = sales.reduce((acc, sale) => {
       if (sale.status === 'COMPLETED') acc.revenue += sale.totalAmount;
       acc.count++;
@@ -49,6 +91,7 @@ export class PosService {
     });
 
     const totalAmount = items.reduce((sum: number, item: any) => sum + item.totalPrice, 0);
+    const paymentMethod = body.paymentMethod || 'CASH';
 
     return this.prisma.$transaction(async (tx) => {
       const sale = await tx.posSale.create({
@@ -57,7 +100,7 @@ export class PosService {
           clientId: body.clientId || null,
           staffId: body.staffId || null,
           totalAmount,
-          paymentMethod: body.paymentMethod || 'CASH',
+          paymentMethod,
           status: 'COMPLETED',
           items: { create: items },
         },
@@ -72,7 +115,18 @@ export class PosService {
         },
       });
 
-      return { ...sale, receipt };
+      const payment = await tx.payment.create({
+        data: {
+          posSaleId: sale.id,
+          clientId: body.clientId || null,
+          amount: sale.totalAmount,
+          currency: 'USD',
+          method: paymentMethod,
+          status: 'COMPLETED',
+        },
+      });
+
+      return { ...sale, receipt, payment };
     });
   }
 
@@ -82,12 +136,15 @@ export class PosService {
     if (query.status) where.status = query.status;
     if (query.from) where.createdAt = { ...where.createdAt, gte: new Date(query.from) };
     if (query.to) where.createdAt = { ...where.createdAt, lte: new Date(query.to) };
-    return this.prisma.posSale.findMany({
+
+    const sales = await this.prisma.posSale.findMany({
       where,
       include: this.saleInclude,
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+
+    return this.attachReceiptsAndPaymentsToSales(sales);
   }
 
   async getSale(id: string) {
@@ -102,17 +159,44 @@ export class PosService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return { ...sale, receipt };
+    const payment = await this.prisma.payment.findFirst({
+      where: { posSaleId: sale.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return { ...sale, receipt, payment };
   }
 
   async refund(id: string, body: any) {
     const sale = await this.prisma.posSale.findUnique({ where: { id } });
     if (!sale) throw new NotFoundException('Sale not found');
     if (sale.status === 'REFUNDED') throw new BadRequestException('Sale already refunded');
-    return this.prisma.posSale.update({
-      where: { id },
-      data: { status: 'REFUNDED' },
-      include: this.saleInclude,
+
+    return this.prisma.$transaction(async (tx) => {
+      const updatedSale = await tx.posSale.update({
+        where: { id },
+        data: { status: 'REFUNDED' },
+        include: this.saleInclude,
+      });
+
+      const receipt = await tx.receipt.findFirst({
+        where: { posSaleId: updatedSale.id },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const existingPayment = await tx.payment.findFirst({
+        where: { posSaleId: updatedSale.id },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const payment = existingPayment
+        ? await tx.payment.update({
+            where: { id: existingPayment.id },
+            data: { status: 'REFUNDED' },
+          })
+        : null;
+
+      return { ...updatedSale, receipt, payment };
     });
   }
 
