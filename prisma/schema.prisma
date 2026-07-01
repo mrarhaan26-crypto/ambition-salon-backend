@@ -305,6 +305,7 @@ model PosSale {
   clientId      String?
   staffId       String?
   items         PosSaleItem[]
+  inventoryTransactions InventoryTransaction[]
   totalAmount   Float           @default(0)
   paymentMethod String?
   status        String          @default("COMPLETED")
@@ -321,17 +322,20 @@ model PosSale {
 }
 
 model PosSaleItem {
-  id        String  @id @default(cuid())
+  id        String             @id @default(cuid())
   saleId    String
   serviceId String?
+  productId String?
   name      String
-  quantity  Int     @default(1)
-  unitPrice Float   @default(0)
-  totalPrice Float   @default(0)
-  sale      PosSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  service   Service? @relation(fields: [serviceId], references: [id])
+  quantity  Int                @default(1)
+  unitPrice Float              @default(0)
+  totalPrice Float             @default(0)
+  sale      PosSale            @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  service   Service?           @relation(fields: [serviceId], references: [id])
+  product   InventoryProduct?  @relation(fields: [productId], references: [id], map: "pos_sale_item_product_id")
 
   @@index([saleId])
+  @@index([productId])
 }
 
 model InventoryProduct {
@@ -350,6 +354,7 @@ model InventoryProduct {
   updatedAt     DateTime               @updatedAt
   branch        Branch                 @relation(fields: [branchId], references: [id])
   transactions  InventoryTransaction[]
+  posSaleItems  PosSaleItem[]
 
   @@index([branchId])
   @@index([sku])
@@ -358,15 +363,18 @@ model InventoryProduct {
 }
 
 model InventoryTransaction {
-  id        String           @id @default(cuid())
+  id        String                   @id @default(cuid())
   productId String
   type      InventoryTransactionType
   quantity  Int
   notes     String?
-  createdAt DateTime         @default(now())
-  product   InventoryProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  posSaleId String?
+  createdAt DateTime                 @default(now())
+  product   InventoryProduct         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  posSale   PosSale?                 @relation(fields: [posSaleId], references: [id], map: "inventory_transaction_pos_sale_id")
 
   @@index([productId])
+  @@index([posSaleId])
   @@index([createdAt])
 }
 

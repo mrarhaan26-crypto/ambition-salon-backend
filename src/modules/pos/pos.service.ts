@@ -83,6 +83,7 @@ export class PosService {
       const unitPrice = Number(item.unitPrice) || 0;
       return {
         serviceId: item.serviceId || null,
+        productId: item.productId || null,
         name: item.name,
         quantity,
         unitPrice,
@@ -106,6 +107,35 @@ export class PosService {
         },
         include: this.saleInclude,
       });
+
+      for (const item of items) {
+        if (!item.productId) continue;
+        const product = await tx.inventoryProduct.findUnique({ where: { id: item.productId } });
+        if (!product) {
+          throw new BadRequestException(`Product "${item.name}" not found in inventory`);
+        }
+        if (!product.isActive) {
+          throw new BadRequestException(`Product "${product.name}" is archived and cannot be sold`);
+        }
+        if (product.quantity < item.quantity) {
+          throw new BadRequestException(
+            `Insufficient stock for "${product.name}": requested ${item.quantity}, available ${product.quantity}`
+          );
+        }
+        await tx.inventoryProduct.update({
+          where: { id: item.productId },
+          data: { quantity: product.quantity - item.quantity },
+        });
+        await tx.inventoryTransaction.create({
+          data: {
+            productId: item.productId,
+            type: 'OUT',
+            quantity: item.quantity,
+            notes: `Sold via POS sale ${sale.id}`,
+            posSaleId: sale.id,
+          },
+        });
+      }
 
       const receipt = await tx.receipt.create({
         data: {
@@ -168,11 +198,39 @@ export class PosService {
   }
 
   async refund(id: string, body: any) {
-    const sale = await this.prisma.posSale.findUnique({ where: { id } });
+    const sale = await this.prisma.posSale.findUnique({
+      where: { id },
+      include: { items: true },
+    });
     if (!sale) throw new NotFoundException('Sale not found');
     if (sale.status === 'REFUNDED') throw new BadRequestException('Sale already refunded');
 
     return this.prisma.$transaction(async (tx) => {
+      const alreadyRestored = await tx.inventoryTransaction.findFirst({
+        where: { posSaleId: id, type: 'IN' },
+      });
+
+      if (!alreadyRestored) {
+        for (const item of sale.items) {
+          if (!item.productId) continue;
+          const product = await tx.inventoryProduct.findUnique({ where: { id: item.productId } });
+          if (!product) continue;
+          await tx.inventoryProduct.update({
+            where: { id: item.productId },
+            data: { quantity: product.quantity + item.quantity },
+          });
+          await tx.inventoryTransaction.create({
+            data: {
+              productId: item.productId,
+              type: 'IN',
+              quantity: item.quantity,
+              notes: `Restocked via POS refund ${id}`,
+              posSaleId: id,
+            },
+          });
+        }
+      }
+
       const updatedSale = await tx.posSale.update({
         where: { id },
         data: { status: 'REFUNDED' },
